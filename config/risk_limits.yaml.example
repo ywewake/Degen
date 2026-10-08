@@ -1,0 +1,6 @@
+# Copy to config/risk_limits.yaml and adjust. Placeholder values - set your own.
+max_position_pct_of_equity: 0.05   # max single position as fraction of paper equity
+max_gross_exposure_pct: 1.0        # no leverage
+max_daily_loss_pct: 0.02           # halt new orders for the day past this drawdown
+max_orders_per_day: 20
+allowed_asset_classes: [us_equity]

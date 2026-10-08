@@ -108,3 +108,17 @@ temp/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+
+# Trading research loop
+# config/ holds real keys and risk limits: ignore everything except templates
+config/*
+!config/*.example
+!config/README.md
+# historical price data
+data/*
+!data/.gitkeep
+# hypothesis ledger database (schema.sql is tracked)
+memory/*.db
+memory/*.db-journal
+memory/*.db-wal
+memory/*.db-shm
