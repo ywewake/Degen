@@ -296,6 +296,9 @@ class ExamTest(unittest.TestCase):
         with self.assertRaisesRegex(core.LoopError, "Test F2"):
             sealed.check_fresh({"first_date": "2021-01-01", "last_date": "2021-01-02", "markets": ["UNKNOWN"]})
         sealed.check_fresh({"first_date": "2021-01-01", "last_date": "2021-01-02", "markets": ["TSX"]})
+        with self.assertRaisesRegex(core.LoopError, "US gap"):
+            sealed.check_fresh({"first_date": "2026-10-05", "last_date": "2026-10-20", "markets": ["UNKNOWN"]})
+        sealed.check_fresh({"first_date": "2026-10-11", "last_date": "2026-12-31", "markets": ["UNKNOWN"]})
 
     def test_missing_exam_log_blocks_exam(self):
         git(self.root, "remote", "set-url", "origin", str(Path(self.tmp.name) / "nowhere.git"))
