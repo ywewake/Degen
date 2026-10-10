@@ -11,14 +11,15 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from lab import broker, core, devdata, sealed
+from helpers import make_repo_with_protected_origin
+from lab import broker, core, devdata, examlog, sealed
 
 KEY = "correct horse battery staple"
-EXAM = b"date,ticker,close\n2024-01-02,FAKE.V,1.23\n2024-01-03,FAKE.V,1.31\n"
+EXAM = b"date,ticker,close,volume\n2024-01-02,FAKE.V,1.23,100\n2024-01-03,FAKE.V,1.31,200\n"
 
 
 def counting_scorer(calls):
-    def scorer(data, strategy_path):
+    def scorer(data, strategy_path, n_tested):
         calls.append((data, strategy_path))
         return {"rows": data.count(b"\n") - 1}
     return scorer
@@ -27,8 +28,11 @@ def counting_scorer(calls):
 class SealedTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
-        os.environ["LOOP_ROOT"] = self.tmp.name
+        self.root = Path(self.tmp.name) / "repo"
+        self.root.mkdir()
+        os.environ["LOOP_ROOT"] = str(self.root)
+        make_repo_with_protected_origin(self.root)
+        examlog.init()
         plain = self.root / "exam.csv"
         plain.write_bytes(EXAM)
         sealed.seal(plain, KEY)
@@ -46,7 +50,7 @@ class SealedTest(unittest.TestCase):
         d = h.dir
         (d / "hypothesis.md").write_text("IDEA\n\nx\n")
         (d / "prediction.md").write_text("PREDICTION\n\ny\n")
-        (d / "strategy.py").write_text("def generate_signals(prices):\n    return []\n")
+        (d / "strategy.py").write_text("def generate_signals(prices):\n    return {}\n")
         core.freeze(h.id)
         core.attempt(h.id)
         return h
@@ -132,7 +136,7 @@ class SealedTest(unittest.TestCase):
     def test_exam_is_recorded_before_strategy_sees_data(self):
         h = self.hypothesis_with_attempt()
 
-        def crashing_scorer(data, path):
+        def crashing_scorer(data, path, n_tested):
             raise RuntimeError("crash mid-exam")
         with self.assertRaises(RuntimeError):
             sealed.evaluate(h.id, KEY, crashing_scorer)
