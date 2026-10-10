@@ -297,7 +297,7 @@ class ExamTest(unittest.TestCase):
             sealed.check_fresh({"first_date": "2021-01-01", "last_date": "2021-01-02", "markets": ["UNKNOWN"]})
         sealed.check_fresh({"first_date": "2021-01-01", "last_date": "2021-01-02", "markets": ["TSX"]})
         with self.assertRaisesRegex(core.LoopError, "US gap"):
-            sealed.check_fresh({"first_date": "2026-10-05", "last_date": "2026-10-20", "markets": ["UNKNOWN"]})
+            sealed.check_fresh({"first_date": "2026-10-05", "last_date": "2026-10-20", "markets": ["US"]})
         sealed.check_fresh({"first_date": "2026-10-11", "last_date": "2026-12-31", "markets": ["UNKNOWN"]})
 
     def test_missing_exam_log_blocks_exam(self):
