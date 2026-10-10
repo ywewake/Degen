@@ -23,7 +23,8 @@ DEFAULT_JUDGE_USER = "judge"
 
 # Files that decide how an exam is judged. Uncommitted changes block an exam,
 # and `degen-judge update` shows their diff before you approve it.
-EVALUATOR_PATHS = ("lab", "memory/schema.sql", "memory/schema_sealed.sql", "loop", "evaluate_sealed",
+EVALUATOR_PATHS = ("lab", "memory/schema.sql", "memory/schema_sealed.sql", "memory/blocked_periods.csv",
+                   "loop", "evaluate_sealed",
                    "seal_data", "exam_log", "preflight", "degen-judge", "scripts/setup_judge.sh")
 
 

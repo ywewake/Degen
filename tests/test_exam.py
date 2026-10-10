@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import tempfile
 import threading
+from datetime import datetime
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -48,7 +49,7 @@ def exam_csv(days=120, seed=1) -> bytes:
             drift = 0.01 if t == "WIN.V" else 0.0
             op = px[t] * (1 + drift / 2 + rng.gauss(0, 0.005))
             px[t] = op * (1 + drift / 2 + rng.gauss(0, 0.005))
-            lines.append(f"2023-{1 + i // 28:02d}-{1 + i % 28:02d},{t},{op:.6f},{px[t]:.6f},1000")
+            lines.append(f"2027-{1 + i // 28:02d}-{1 + i % 28:02d},{t},{op:.6f},{px[t]:.6f},1000")
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -176,7 +177,7 @@ class ExamTest(unittest.TestCase):
         log = subprocess.run(["git", "-C", str(self.remote), "log", "-p", "exam-log"],
                              capture_output=True, text=True).stdout
         self.assertNotIn("LEAK", json.dumps(r) + log)
-        self.assertNotIn("('2023-01-01'", json.dumps(r) + log)  # the repr of the leaked price rows
+        self.assertNotIn("('2027-01-01'", json.dumps(r) + log)  # the repr of the leaked price rows
 
     def test_strategy_cannot_look_ahead(self):
         # Each day the strategy reports how many dates it can see, as a weight.
@@ -240,12 +241,54 @@ class ExamTest(unittest.TestCase):
         with self.assertRaisesRegex(core.LoopError, "RETAKE REFUSED. This prediction"):
             sealed.evaluate(h.id, KEY)
 
+    def at(self, iso):
+        """Pretend the exam happens at `iso` (UTC)."""
+        return mock.patch.object(examlog, "now", return_value=datetime.fromisoformat(iso + "+00:00"))
+
     def test_n_comes_from_exam_log_and_survives_ledger_wipe(self):
-        sealed.evaluate(self.hypothesis(PICK_WIN + "# one\n", idea="one").id, KEY)
-        sealed.evaluate(self.hypothesis(PICK_WIN + "# two\n", idea="two").id, KEY)
+        with self.at("2026-10-12T18:00:00"):
+            sealed.evaluate(self.hypothesis(PICK_WIN + "# one\n", idea="one").id, KEY)
+        with self.at("2026-10-19T18:00:00"):
+            sealed.evaluate(self.hypothesis(PICK_WIN + "# two\n", idea="two").id, KEY)
         self.wipe_local()
-        r = sealed.evaluate(self.hypothesis(PICK_WIN + "# three\n", idea="three").id, KEY)
+        with self.at("2026-10-26T18:00:00"):
+            r = sealed.evaluate(self.hypothesis(PICK_WIN + "# three\n", idea="three").id, KEY)
         self.assertEqual(r["n_tested"], 3)
+
+    def test_one_exam_per_week(self):
+        # Monday 2026-10-12 00:30 Vancouver is 07:30 UTC; Sunday 2026-10-18 23:30 Vancouver is 06:30 UTC Monday.
+        with self.at("2026-10-12T07:30:00"):
+            sealed.evaluate(self.hypothesis(PICK_WIN + "# one\n", idea="one").id, KEY)
+        h = self.hypothesis(PICK_WIN + "# two\n", idea="two")
+        with self.at("2026-10-19T06:30:00"), self.assertRaisesRegex(core.LoopError, "ONE EXAM PER WEEK"):
+            sealed.evaluate(h.id, KEY)
+        self.assertEqual(self.local_exams(), 1)
+        with self.at("2026-10-19T07:30:00"):  # Monday 00:30 Vancouver: a new week
+            self.assertEqual(sealed.evaluate(h.id, KEY)["n_tested"], 2)
+
+    def test_blocked_period_refuses_seal_and_exam(self):
+        plain = self.root / "old.csv"
+        plain.write_bytes(exam_csv().replace(b"2027-", b"2025-"))
+        sealed.exam_path().chmod(0o644)
+        sealed.exam_path().unlink()
+        with self.assertRaisesRegex(core.LoopError, "BLOCKED PERIOD(.|\n)*Muse's sealed panel"):
+            sealed.seal(plain, KEY)
+        self.assertFalse(sealed.exam_path().exists())
+
+    def test_period_blocked_after_sealing_blocks_the_exam(self):
+        h = self.hypothesis()
+        extra = [{"markets": {"TSXV"}, "start": "2027-01-01", "end": "2027-12-31", "reason": "found out later"}]
+        with mock.patch.object(sealed, "blocked_periods", return_value=extra):
+            with self.assertRaisesRegex(core.LoopError, "BLOCKED PERIOD(.|\n)*found out later"):
+                sealed.evaluate(h.id, KEY)
+        self.assertEqual(self.local_exams(), 0)
+
+    def test_unknown_market_is_blocked_by_every_block(self):
+        info = {"first_date": "2026-01-05", "last_date": "2026-02-05", "markets": ["UNKNOWN"]}
+        with self.assertRaisesRegex(core.LoopError, "BLOCKED PERIOD"):
+            sealed.check_fresh(info)
+        sealed.check_fresh({**info, "first_date": "2026-10-05", "last_date": "2026-12-31", "markets": ["TSX"]})
+        self.assertEqual(sealed.markets_of(["A.TO", "b.v", "C.CN", "D"]), ["CSE", "TSX", "TSXV", "UNKNOWN"])
 
     def test_missing_exam_log_blocks_exam(self):
         git(self.root, "remote", "set-url", "origin", str(Path(self.tmp.name) / "nowhere.git"))
@@ -286,7 +329,8 @@ class ExamTest(unittest.TestCase):
         examlog.init()
         self.wipe_local()
         h = self.hypothesis()
-        with self.assertRaisesRegex(core.LoopError, "WRONG EXAM LOG"):
+        # Stopped either way: the fake log has no record of this exam file, nor its identity.
+        with self.assertRaisesRegex(core.LoopError, "WRONG EXAM LOG|never recorded in the exam log"):
             sealed.evaluate(h.id, KEY)
 
     def test_exam_log_identity_in_sealed_file_cannot_be_swapped(self):
@@ -363,6 +407,7 @@ class JudgeTest(unittest.TestCase):
                          (b"date,ticker,close,volume\n2024-01-02,A,1,1\n", "header"),
                          (h + b"2024-01-02,A,1,1,1,takeover,\n2024-01-03,B,1,1,1,,\n", "deal_price"),
                          (h + b"2024-01-02,A,1,1,1,bankrupt,\n2024-01-03,B,1,1,1,,\n", "unknown event"),
+                         (h + b"2024-01-02,A,1,1,1,halt,\n2024-01-03,B,1,1,1,,\n", "unknown event"),
                          (h + b"2024-01-02,A,1,1,1,delisted,\n2024-01-03,A,1,1,1,,\n", "last row"),
                          (b"\xff\xfe", "UTF-8")):
             with self.assertRaisesRegex(backtest.DataFailed, why):
@@ -379,16 +424,17 @@ class JudgeTest(unittest.TestCase):
         self.assertEqual(s["trades"], 1)
         self.assertAlmostEqual(s["benchmark_return"], 1.1 * 1.0 - 1)
 
-    def test_takeover_failure_and_halt_endings(self):
+    def test_takeover_failure_and_unexplained_endings(self):
         days = [("d0", [["F", 10, 10, 1], ["H", 10, 10, 1], ["T", 10, 10, 1], ["X", 1, 1, 1]]),
                 ("d1", [["F", 10, 10, 1], ["H", 10, 10, 1], ["T", 10, 10, 1], ["X", 1, 1, 1]]),
                 ("d2", [["X", 1, 1, 1]])]
         w = {"T": 0.3, "F": 0.3, "H": 0.3}
         s = backtest.score(days, [w, w, {}], {"T": ("takeover", 15.0), "F": ("delisted", None)},
                            cost_round_trip=0.02, nw_lag=0)
-        # d1: buy 0.9 at the open (0.9% cost). d2: T +50% at the deal price, F -100%, H at last price.
-        self.assertAlmostEqual(s["net_return"], (1 - 0.009) * (1 + 0.3 * 0.5 - 0.3) - 1)
-        self.assertEqual((s["takeover_exits"], s["delisted_exits"], s["optimistic_exits"]), (1, 1, 1))
+        # d1: buy 0.9 at the open (0.9% cost). d2: T +50% at the deal price, F -100%,
+        # H vanished with no explanation: also -100%.
+        self.assertAlmostEqual(s["net_return"], (1 - 0.009) * (1 + 0.3 * 0.5 - 0.3 - 0.3) - 1)
+        self.assertEqual((s["takeover_exits"], s["delisted_exits"], s["unexplained_exits"]), (1, 1, 1))
 
     def test_halted_position_is_stuck_then_marked_on_reopening(self):
         days = [("d0", [["S", 10, 10, 1]]), ("d1", [["S", 10, 10, 1]]), ("d2", [["Y", 1, 1, 1]]),
@@ -407,7 +453,7 @@ class JudgeTest(unittest.TestCase):
 
     def outcome(self, **stats):
         base = {"days": 100, "trades": 50, "net_return": 0.1, "benchmark_return": 0.0, "mean_daily_net": 0.001,
-                "t_stat": 4.0, "takeover_exits": 0, "delisted_exits": 0, "optimistic_exits": 0}
+                "t_stat": 4.0, "takeover_exits": 0, "delisted_exits": 0, "unexplained_exits": 0}
         days = [("d0", [["A", 1, 1, 1]]), ("d1", [["A", 1, 1, 1]])]
         csv_ = b"date,ticker,open,close,volume\n2024-01-02,A,1,1,1\n2024-01-03,A,1,1,1\n"
         with mock.patch.object(backtest.sandbox, "run", return_value=[{}, {}]), \

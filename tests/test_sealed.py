@@ -15,7 +15,7 @@ from helpers import make_repo_with_protected_origin
 from lab import broker, core, devdata, examlog, sealed
 
 KEY = "correct horse battery staple"
-EXAM = b"date,ticker,open,close,volume\n2024-01-02,FAKE.V,1.20,1.23,100\n2024-01-03,FAKE.V,1.25,1.31,200\n"
+EXAM = b"date,ticker,open,close,volume\n2027-01-04,FAKE.V,1.20,1.23,100\n2027-01-05,FAKE.V,1.25,1.31,200\n"
 
 
 def counting_scorer(calls):

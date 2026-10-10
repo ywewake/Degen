@@ -10,15 +10,17 @@ Fixed rules:
     plus optional event,deal_price. Rows with a bad date or a missing or
     non-positive open/close are dropped. A duplicate (date, ticker) makes the
     dataset unusable (DATA_FAILED).
-  * Events go on a ticker's LAST row: `takeover` (deal_price required),
-    `delisted` (a failure) or `halt`. The strategy never sees them.
+  * Events go on a ticker's LAST row: `takeover` (deal_price required) or
+    `delisted` (a failure). The strategy never sees them.
   * After each close the strategy returns long-only weights (sum <= 1) using
     only data up to that close. They are executed at the NEXT day's open, and
     only for stocks that trade that day. A stock that isn't trading can't be
     bought or sold; it stays held.
-  * Endings for a held stock after its last row: takeover -> exit at the deal
-    price; delisted -> -100%; halt or unlabeled -> exit at the last traded
-    price, counted as an OPTIMISTIC exit.
+  * Endings for a held stock after its last row: a documented takeover exits
+    at the deal price; anything else is -100% (delisted, or UNEXPLAINED: in
+    micro-caps an unexplained disappearance is more often a failure). A halt
+    that reopens within the data is not an ending: the position stays held
+    and is marked when the stock trades again.
   * Cost: half the frozen round-trip cost per unit of weight traded.
   * Benchmark: equal-weighted close-to-close return of every stock trading on
     both days.
@@ -36,7 +38,7 @@ from datetime import date as Date
 
 from . import sandbox
 
-EVENTS = ("takeover", "delisted", "halt")
+EVENTS = ("takeover", "delisted")
 TERM_LINES = {
     "cost round trip": "Cost round trip: 2%",
     "minimum trades": "Minimum trades: 100",
@@ -164,21 +166,18 @@ def score(days: list, weights: list[dict], endings: dict, cost_round_trip: float
     one_way = cost_round_trip / 2
     pos, last_close = {}, dict(closes[0])
     net, excess, trades = [], [], 0
-    exits = {"takeover": 0, "delisted": 0, "optimistic": 0}
+    exits = {"takeover": 0, "delisted": 0, "unexplained": 0}
     for i in range(1, len(days)):
         o, c = opens[i], closes[i]
         r = 0.0
         # 1. Stocks that stopped trading before today: settle them.
         for t in [t for t in pos if last_idx[t] < i]:
-            event, deal = endings.get(t, ("halt", None))
+            event, deal = endings.get(t, ("unexplained", None))
             if event == "takeover":
                 r += pos[t] * (deal / last_close[t] - 1)
-                exits["takeover"] += 1
-            elif event == "delisted":
-                r += pos[t] * -1.0
-                exits["delisted"] += 1
             else:
-                exits["optimistic"] += 1
+                r += pos[t] * -1.0
+            exits[event] += 1
             del pos[t]
         # 2. Overnight: held positions move from last close to today's open.
         for t, w in pos.items():
@@ -218,7 +217,7 @@ def score(days: list, weights: list[dict], endings: dict, cost_round_trip: float
             "benchmark_return": bench_growth - 1, "mean_daily_net": sum(net) / len(net),
             "t_stat": newey_west_t(excess, nw_lag),
             "takeover_exits": exits["takeover"], "delisted_exits": exits["delisted"],
-            "optimistic_exits": exits["optimistic"]}
+            "unexplained_exits": exits["unexplained"]}
 
 
 def evaluate(data: bytes, strategy_path, n_tested: int, terms: dict, timeout: int = 600) -> dict:

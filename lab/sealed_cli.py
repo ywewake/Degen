@@ -25,7 +25,9 @@ def seal_main(argv):
         if not src.is_file():
             raise core.LoopError(f"{src} is not a file.")
         info = sealed.describe(src.read_bytes())
-        print(f"Exam period: {info['first_date']} to {info['last_date']} ({info['trading_days']} trading days)")
+        sealed.check_fresh(info)  # before asking anyone to attest anything
+        print(f"Exam period: {info['first_date']} to {info['last_date']} ({info['trading_days']} trading days), "
+              f"markets {', '.join(info['markets'])}")
         print(f"Universe: {info['tickers']} tickers, {info['rows']} rows; endings: "
               + ", ".join(f"{k} {v}" for k, v in info["events"].items()))
         judge.confirm_at_terminal(
@@ -62,7 +64,7 @@ def evaluate_main(argv):
             print(f"Net return: {r['net_return']:+.1%} (mean daily {r['mean_daily_net']:+.4%})")
             print(f"Benchmark return: {r['benchmark_return']:+.1%}")
             print(f"Exits: {r['takeover_exits']} takeover, {r['delisted_exits']} delisted, "
-                  f"{r['optimistic_exits']} optimistic (halt or unlabeled, at last traded price)")
+                  f"{r['unexplained_exits']} unexplained (counted -100%)")
             print(f"t-stat (Newey-West): {r['t_stat']:.2f}\n")
         line = f"RECOMMENDED: {r['result']}" + (f" ({r['category']})" if r["category"] else "")
         if r.get("detail"):

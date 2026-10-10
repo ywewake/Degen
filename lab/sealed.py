@@ -72,6 +72,43 @@ def ask_passphrase(confirm: bool = False) -> str:
     return p
 
 
+MARKET_SUFFIXES = {".TO": "TSX", ".V": "TSXV", ".CN": "CSE"}
+
+
+def markets_of(tickers) -> list[str]:
+    """Markets from ticker suffixes. A ticker without a known suffix is UNKNOWN."""
+    out = set()
+    for t in tickers:
+        m = next((mk for suf, mk in MARKET_SUFFIXES.items() if t.upper().endswith(suf)), "UNKNOWN")
+        out.add(m)
+    return sorted(out)
+
+
+def blocked_periods() -> list[dict]:
+    """Periods already used by some test, from memory/blocked_periods.csv in the evaluator's own
+    copy. Removing one is a code change, so it reaches the judge only through an approved update."""
+    import csv
+    path = judge.CODE_DIR / "memory" / "blocked_periods.csv"
+    if not path.exists():
+        raise LoopError("memory/blocked_periods.csv is missing. Refusing: without it, no period can be "
+                        "shown to be fresh.")
+    return [{"markets": set(r["markets"].split(";")), "start": r["start"], "end": r["end"],
+             "reason": r["reason"]} for r in csv.DictReader(path.open())]
+
+
+def check_fresh(info: dict) -> None:
+    """Refuse an exam whose period overlaps a blocked period for any of its markets."""
+    markets = set(info["markets"])
+    for b in blocked_periods():
+        applies = "*" in b["markets"] or "UNKNOWN" in markets or markets & b["markets"]
+        if applies and info["first_date"] <= b["end"] and info["last_date"] >= b["start"]:
+            raise LoopError(
+                f"BLOCKED PERIOD. This exam covers {info['first_date']} to {info['last_date']} "
+                f"({', '.join(info['markets'])}), which overlaps {b['start']} to {b['end']} for "
+                f"{', '.join(sorted(b['markets']))}:\n  {b['reason']}\n"
+                "Data from a period that was already tested is worn. Use forward data instead.")
+
+
 def describe(plaintext: bytes) -> dict:
     """What period and universe an exam covers. Refuses data the judge couldn't score."""
     try:
@@ -80,6 +117,7 @@ def describe(plaintext: bytes) -> dict:
         raise LoopError(f"DATA FAILED: {e}. Nothing was sealed.") from None
     tickers = {r[0] for _, rows in days for r in rows}
     return {"first_date": days[0][0], "last_date": days[-1][0], "trading_days": len(days),
+            "markets": markets_of(tickers),
             "tickers": len(tickers), "rows": sum(len(rows) for _, rows in days),
             "events": {e: sum(1 for v, _ in endings.values() if v == e) for e in backtest.EVENTS}}
 
@@ -98,6 +136,7 @@ def seal(plaintext: Path, passphrase: str) -> Path:
         raise LoopError(f"{out} already exists. There is one exam; "
                         "refusing to replace it.")
     info = describe(plaintext.read_bytes())
+    check_fresh(info)
     genesis = examlog.genesis(examlog.fetch()[0]).encode()
     salt, nonce = secrets.token_bytes(16), secrets.token_bytes(12)
     header = MAGIC + bytes([len(genesis)]) + genesis + salt + nonce
@@ -165,6 +204,13 @@ def evaluate(hid: int, passphrase: str, scorer=backtest.evaluate) -> dict:
     except backtest.TermsMissing as e:
         raise LoopError(f"Prediction {h.id:03d} cannot be judged: {e}\n"
                         "Nothing was used. Fixing it needs `./loop revise`, which costs an attempt.") from None
+
+    exam_file = examlog.find_exam_file(hashlib.sha256(exam_path().read_bytes()).hexdigest()
+                                       if exam_path().exists() else "")
+    if exam_file is None:
+        raise LoopError("This sealed exam file was never recorded in the exam log. "
+                        "Only an exam sealed with `seal` can be used.")
+    check_fresh(exam_file)          # a period blocked after sealing is blocked for good
 
     preflight.check(strategy)       # a typo costs nothing
     genesis, data = _open(passphrase)  # wrong key fails here, before the exam is used up

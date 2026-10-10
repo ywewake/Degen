@@ -95,6 +95,10 @@ def exam_files(records: list[dict]) -> list[dict]:
     return [r for r in records if r.get("type") == "exam_file"]
 
 
+def find_exam_file(sha256: str) -> dict | None:
+    return next((f for f in exam_files(fetch()[1]) if f["sha256"] == sha256), None)
+
+
 def record_exam_file(info: dict) -> None:
     head, records = fetch()
     rec = {"type": "exam_file", "sealed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **info}
@@ -187,6 +191,18 @@ def genesis(head: str) -> str:
     return _git("rev-list", "--max-parents=0", head).splitlines()[-1]
 
 
+WEEK_TZ = "America/Vancouver"
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _week(dt: datetime) -> tuple[int, int]:
+    from zoneinfo import ZoneInfo
+    return dt.astimezone(ZoneInfo(WEEK_TZ)).isocalendar()[:2]
+
+
 def record_exam(fields: dict, sealed_genesis: str) -> int:
     """Append an exam record, refusing a retake. Returns N (exams + imported priors, this one included).
 
@@ -206,8 +222,14 @@ def record_exam(fields: dict, sealed_genesis: str) -> int:
             if old.get(k) == fields[k]:
                 raise LoopError(f"RETAKE REFUSED. This {k.split('_')[0]} already took the sealed exam "
                                 f"(as hypothesis {old['hypothesis_id']:03d} on {old['started_at']}).")
+    started = now()
+    for old in exams(records):
+        when = datetime.strptime(old["started_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        if _week(when) == _week(started):
+            raise LoopError(f"ONE EXAM PER WEEK. Hypothesis {old['hypothesis_id']:03d} took the sealed exam "
+                            f"this week ({old['started_at']}). Weeks run Monday to Sunday, {WEEK_TZ} time.")
     commit, dirty = code_state()
-    rec = {"type": "exam", "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    rec = {"type": "exam", "started_at": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
            "evaluator_commit": commit + ("-dirty" if dirty else ""), **fields}
     _append(head, records + [rec], f"Exam: hypothesis {fields['hypothesis_id']:03d}")
     return n_tested(records) + 1

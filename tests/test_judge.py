@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parent.parent
 DEV, JUDGE = "djdev", "djjudge"
 KEY = "correct horse battery staple"
 ENABLED = os.environ.get("DEGEN_TEST_USERS") == "1" and os.geteuid() == 0 and shutil.which("bwrap")
-CODE = ["lab", "memory/schema.sql", "memory/schema_sealed.sql", "loop", "new_idea", "evaluate_sealed",
+CODE = ["lab", "memory/schema.sql", "memory/schema_sealed.sql", "memory/blocked_periods.csv", "loop", "new_idea", "evaluate_sealed",
         "seal_data", "exam_log", "preflight", "degen-judge", "scripts", "requirements.txt", ".gitignore"]
 
 
