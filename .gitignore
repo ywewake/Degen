@@ -125,3 +125,6 @@ memory/*.db-shm
 
 # Python
 __pycache__/
+
+# judge installation marker (root-owned, only in the judge user's copy)
+judge.conf

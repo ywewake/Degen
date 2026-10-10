@@ -58,12 +58,36 @@ What `./evaluate_sealed` does, in order (everything before step 5 can fail witho
 
 **Exam log**: records live on the `exam-log` branch, written with git plumbing (your working tree is never touched). N comes from here, not from the local database, so wiping local files cannot lower it.
 
+### The judge user (the real boundary)
+Everything in the workspace is writable by the AI, including the evaluator's own code. So the
+sealed side runs as a separate Linux user, `judge`, from its own copy:
+
+| Lives in the judge's home (700: you and the AI can't read or write it) | Lives in your workspace (the judge only reads it) |
+|---|---|
+| evaluator code, `judge.conf`, sealed exam, `memory/judge.db`, exam-log git memory, the judge's GitHub deploy key | hypotheses, strategy snapshots, `memory/ledger.db` |
+
+You run exams with `sudo -u judge degen-judge ...`; sudo asks for your password, which the AI
+doesn't have. Once a `judge` user exists, the workspace's `./seal_data`, `./evaluate_sealed` and
+`./exam_log` refuse to run: the AI could have edited them to capture the key.
+
+New evaluator code reaches the judge only through `degen-judge update <branch>`, which shows you the
+diff of every evaluator file and needs you to type APPROVE.
+
 ### Setup on Windows (WSL2)
 1. Install WSL2 with Ubuntu. Clone the repo **inside** WSL (`~/Degen`), not under `/mnt/c`.
-2. `sudo apt install python3-cryptography bubblewrap git`
-3. On GitHub: Settings → Branches → add a rule for `exam-log`: block force pushes, block deletions, and do not allow bypassing (applies to admins too).
-4. `./exam_log init`, then `./seal_data <exam.csv>` in a WSL terminal, then delete the plaintext.
-5. Run `./seal_data` and `./evaluate_sealed` yourself, in a WSL terminal. Never through an AI tool.
+2. `sudo apt install python3-cryptography bubblewrap git openssh-client`
+3. Make sure your user's sudo **asks for a password** (WSL's default). The setup script refuses if it doesn't.
+4. On GitHub: Settings → Branches → add a rule for `exam-log`: block force pushes, block deletions,
+   and do not allow bypassing (applies to admins too).
+5. Push your workspace, then: `sudo scripts/setup_judge.sh ~/Degen git@github.com:ywewake/degen.git`
+   It creates the judge, prints a deploy key for you to add on GitHub (with write access), and clones the judge's copy.
+6. In a WSL terminal, never through an AI tool:
+   - `sudo -u judge degen-judge init`
+   - put the exam CSV somewhere the judge can read, then `sudo -u judge degen-judge seal <file>`; delete the plaintext
+   - `sudo -u judge degen-judge evaluate <id>` / `sudo -u judge degen-judge log`
+
+Real-user boundary tests (create and delete system users, so opt-in):
+`sudo DEGEN_TEST_USERS=1 python3 -m unittest discover -s tests -p test_judge.py`
 
 Broker: Interactive Brokers paper account, **stub only** (`lab/broker.py`). Live ports (7496/4001) and non-`DU` accounts are refused.
 

@@ -146,19 +146,20 @@ class SealedTest(unittest.TestCase):
     def test_second_exam_blocked_even_via_raw_sql(self):
         h = self.hypothesis_with_attempt()
         sealed.evaluate(h.id, KEY, counting_scorer([]))
-        conn = sqlite3.connect(self.root / "memory/ledger.db")
+        conn = sqlite3.connect(self.root / "memory/judge.db")
         with self.assertRaises(sqlite3.IntegrityError):
             conn.execute("DELETE FROM sealed_evaluations")
         with self.assertRaises(sqlite3.IntegrityError):
             conn.execute("INSERT INTO sealed_evaluations (hypothesis_id, attempt_no, strategy_sha256, exam_sha256) "
                          "VALUES (1, 1, 'x', 'y')")
 
-    def test_no_attempts_after_exam(self):
+    def test_no_second_exam_after_new_attempt(self):
         h = self.hypothesis_with_attempt()
         sealed.evaluate(h.id, KEY, counting_scorer([]))
-        (h.dir / "strategy.py").write_text("def generate_signals(prices):\n    return ['tweak']\n")
-        with self.assertRaisesRegex(sqlite3.IntegrityError, "sealed exam"):
-            core.attempt(h.id)
+        (h.dir / "strategy.py").write_text("def generate_signals(prices):\n    return {'tweak': 0}\n")
+        core.attempt(h.id)
+        with self.assertRaisesRegex(core.LoopError, "already taken the sealed exam"):
+            sealed.evaluate(h.id, KEY, counting_scorer([]))
 
     def test_exam_requires_a_strategy_attempt(self):
         h = core.new_idea("x")

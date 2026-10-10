@@ -13,12 +13,13 @@ import hashlib
 import json
 import os
 import secrets
+import sqlite3
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from . import backtest, core, examlog, preflight
+from . import backtest, core, examlog, judge, preflight
 from .core import LoopError
 
 MAGIC = b"SEALED2\n"
@@ -28,13 +29,26 @@ MIN_PASSPHRASE = 16
 
 def exam_path() -> Path:
     # Fixed location on purpose: there is no way to point the evaluator elsewhere.
-    return core.root() / "data" / "sealed" / "exam.sealed"
+    return judge.judge_root() / "data" / "sealed" / "exam.sealed"
 
 
 def connect():
-    conn = core.connect()
-    schema = Path(__file__).resolve().parent.parent / "memory" / "schema_sealed.sql"
-    conn.executescript(schema.read_text())
+    """The judge's own database. Never the workspace ledger."""
+    db = judge.judge_root() / "memory" / "judge.db"
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.executescript((judge.CODE_DIR / "memory" / "schema_sealed.sql").read_text())
+    return conn
+
+
+def workspace_ledger():
+    """The workspace's hypothesis ledger, opened read-only."""
+    db = core.root() / "memory" / "ledger.db"
+    if not db.exists():
+        raise LoopError(f"No hypothesis ledger at {db}.")
+    conn = sqlite3.connect(f"{db.as_uri()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
     return conn
 
 
@@ -68,7 +82,7 @@ def seal(plaintext: Path, passphrase: str) -> Path:
         raise LoopError(f"Key must be at least {MIN_PASSPHRASE} characters.")
     out = exam_path()
     if out.exists():
-        raise LoopError(f"{out.relative_to(core.root())} already exists. There is one exam; "
+        raise LoopError(f"{out} already exists. There is one exam; "
                         "refusing to replace it.")
     genesis = examlog.genesis(examlog.fetch()[0]).encode()
     salt, nonce = secrets.token_bytes(16), secrets.token_bytes(12)
@@ -114,21 +128,21 @@ def evaluate(hid: int, passphrase: str, scorer=backtest.evaluate) -> dict:
     data happens first (integrity, preflight, key, data check); then the exam is
     recorded in the external exam log and locally; only then does it run.
     """
-    conn = connect()
-    h = core.get(conn, hid)
-    core.verify_integrity(conn, h)
+    ws, conn = workspace_ledger(), connect()
+    h = core.get(ws, hid)
+    core.verify_integrity(ws, h)
     if conn.execute("SELECT 1 FROM sealed_evaluations WHERE hypothesis_id = ?", (h.id,)).fetchone():
         raise LoopError(f"Hypothesis {h.id:03d} has already taken the sealed exam.\n"
                         "There is no second look. A new idea is a new hypothesis.")
-    last = conn.execute(
+    last = ws.execute(
         "SELECT * FROM attempts WHERE hypothesis_id = ? ORDER BY attempt_no DESC LIMIT 1", (h.id,)
     ).fetchone()
     if last is None or last["kind"] != "test":
         raise LoopError(f"Hypothesis {h.id:03d} has no final strategy attempt to evaluate.\n"
                         f"Its last action must be `./loop attempt {h.id}`.")
-    if core.draft_version(conn, h) is not None:
+    if core.draft_version(ws, h) is not None:
         raise LoopError(f"Hypothesis {h.id:03d} has an unfrozen prediction draft.")
-    pred = conn.execute("SELECT * FROM predictions WHERE hypothesis_id = ? ORDER BY version DESC LIMIT 1",
+    pred = ws.execute("SELECT * FROM predictions WHERE hypothesis_id = ? ORDER BY version DESC LIMIT 1",
                         (h.id,)).fetchone()
     strategy = core.root() / last["strategy_path"]
 

@@ -83,6 +83,7 @@ class ExamTest(unittest.TestCase):
     def wipe_local(self):
         """The attack: delete the local ledger and every hypothesis/strategy file."""
         (self.root / "memory/ledger.db").unlink()
+        (self.root / "memory/judge.db").unlink()  # single-user mode: the AI can reach it
         for d in ("research", "strategies"):
             for p in (self.root / d).rglob("*"):
                 p.chmod(0o755 if p.is_dir() else 0o644)

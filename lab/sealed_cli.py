@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-from . import backtest, core, examlog, preflight, sealed
+from . import backtest, core, examlog, judge, preflight, sealed
 
 
 def _run(fn):
@@ -20,11 +20,12 @@ def seal_main(argv):
         return 2
 
     def go():
+        judge.refuse_if_judge_installed()
         src = Path(argv[0])
         if not src.is_file():
             raise core.LoopError(f"{src} is not a file.")
         out = sealed.seal(src, sealed.ask_passphrase(confirm=True))
-        print(f"Sealed to {out.relative_to(core.root())}.")
+        print(f"Sealed to {out}.")
         print(f"Now delete {src} from anywhere the AI can reach. The key is not stored anywhere.")
     return _run(go)
 
@@ -35,6 +36,7 @@ def evaluate_main(argv):
         return 2
 
     def go():
+        judge.refuse_if_judge_installed()
         commit, dirty = examlog.code_state()
         if dirty:
             raise core.LoopError("The evaluator code has uncommitted changes. Commit (and review) them "
@@ -61,6 +63,7 @@ def evaluate_main(argv):
 
 def exam_log_main(argv):
     def go():
+        judge.refuse_if_judge_installed()
         if argv == ["init"]:
             examlog.init()
             print(f"Created {examlog.REMOTE}/{examlog.BRANCH}. Protect it on GitHub now.")
