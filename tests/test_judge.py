@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 
 from lab import judge
-from test_exam import PICK_WIN, exam_csv
+from test_exam import PICK_WIN, TERMS, exam_csv
 
 REPO = Path(__file__).resolve().parent.parent
 DEV, JUDGE = "djdev", "djjudge"
@@ -109,7 +109,8 @@ class JudgeBoundaryTest(unittest.TestCase):
         hid = int(out.split("hypothesis ")[1].split(":")[0])
         d = f"research/hypothesis_{hid:03d}"
         ok(run_as(DEV, "sh", "-c", f"printf 'IDEA\\n\\n{idea}\\n' > {d}/hypothesis.md && "
-                  f"printf 'PREDICTION\\n\\n{idea} wins.\\n' > {d}/prediction.md && cat > {d}/strategy.py",
+                  f"printf 'PREDICTION\\n\\n{idea} wins.\\n\\nCost round trip: 2%%\\nMinimum trades: 1\\nNewey-West lag: 5\\n' "
+                  f"> {d}/prediction.md && cat > {d}/strategy.py",
                   cwd=str(self.ws), input=strategy))
         ok(self.dev_sh(f"./loop freeze {hid} && ./loop attempt {hid}"))
         return hid
@@ -238,7 +239,7 @@ class JudgeModeTest(unittest.TestCase):
         self.workspace_loop("new", "Winners")
         d = self.ws / "research/hypothesis_001"
         (d / "hypothesis.md").write_text("IDEA\n\nwinners\n")
-        (d / "prediction.md").write_text("PREDICTION\n\nwinners win\n")
+        (d / "prediction.md").write_text("PREDICTION\n\nwinners win\n\n" + TERMS)
         (d / "strategy.py").write_text(PICK_WIN)
         self.workspace_loop("freeze", "1")
         self.workspace_loop("attempt", "1")

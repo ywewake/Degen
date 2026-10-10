@@ -47,12 +47,29 @@ What `./evaluate_sealed` does, in order (everything before step 5 can fail witho
 5. Pushes the exam record to the exam log. Refuses a **retake** (same strategy, prediction or hypothesis text), a log that is **not the one sealed into the exam file**, or a log whose history was **rewritten**. If the push fails, the exam does not run.
 6. Runs the strategy in the sandbox and prints only the summary. The result goes to the exam log.
 
-**The judge** (`lab/backtest.py`), fixed rules a prediction cannot change:
-- Data: CSV `date,ticker,close,volume`. Bad rows dropped; duplicate (date, ticker) → DATA FAILED.
-- The strategy is called as `generate_signals(prices)` once per day and sees only days up to today (it cannot look ahead). `prices = {ticker: [(date, close, volume), ...]}`. It returns `{ticker: weight}`: long-only, sum ≤ 1, only tickers priced today.
-- Held to the next close. A stock with no next price is marked at its next available close; if it never trades again, −100%.
-- Cost 50 bps per unit turnover. Benchmark: equal-weighted return of all tickers priced on both days.
-- PASS if the t-stat of daily (net − benchmark) returns > max(3.0, √(2 ln N)), N = exams in the exam log.
+**The judge** (`lab/backtest.py`). Each prediction must state its own terms, frozen with it; an exam
+without them is refused before the key is asked for:
+```
+Cost round trip: 2%
+Minimum trades: 100
+Newey-West lag: 20
+```
+Fixed rules:
+- Data: CSV `date,ticker,open,close,volume`, optional `event,deal_price`. Bad rows dropped; duplicate
+  (date, ticker) → DATA FAILED. Events go on a stock's last row: `takeover` (with `deal_price`),
+  `delisted` (a failure) or `halt`. The strategy never sees events.
+- `generate_signals(prices)` runs after each close and sees only data up to that close
+  (`prices = {ticker: [(date, open, close, volume), ...]}`). Weights are long-only, sum ≤ 1, and are
+  **executed at the next day's open**, only for stocks that trade that day. A halted stock can't be sold.
+- Endings: takeover → deal price; delisted → −100%; halt or unlabeled → last traded price, counted
+  as an **optimistic** exit and reported.
+- Cost: half the frozen round trip per unit of weight traded. Benchmark: equal-weighted close-to-close
+  return of all stocks trading on both days.
+- Statistic: **Newey-West** t-stat (frozen lag) of daily (net − benchmark).
+- **PASS**: t > max(3.0, √(2 ln N)) **and** mean daily net return > 0. **INCONCLUSIVE**: fewer trades
+  than the frozen minimum, or 0 < t ≤ bar. **FAIL** otherwise. Every result is RECOMMENDED until you confirm it.
+- Sealing records the exam's period and universe in the exam log, after you type FRESH to attest that
+  no system has tested on that period.
 
 **The sandbox** (`lab/sandbox.py`, bubblewrap): no network, nothing writable, no view of the repo or home directory, 2 GB memory, time limit. No sandbox → nothing runs. The strategy's error output is never shown for sealed runs (it could carry exam data).
 

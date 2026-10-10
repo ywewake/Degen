@@ -24,6 +24,13 @@ def seal_main(argv):
         src = Path(argv[0])
         if not src.is_file():
             raise core.LoopError(f"{src} is not a file.")
+        info = sealed.describe(src.read_bytes())
+        print(f"Exam period: {info['first_date']} to {info['last_date']} ({info['trading_days']} trading days)")
+        print(f"Universe: {info['tickers']} tickers, {info['rows']} rows; endings: "
+              + ", ".join(f"{k} {v}" for k, v in info["events"].items()))
+        judge.confirm_at_terminal(
+            "\nThis period is recorded in the exam log permanently. Seal it only if NO system has\n"
+            "tested a hypothesis on it (a period used before is worn, even when encrypted).", "FRESH")
         out = sealed.seal(src, sealed.ask_passphrase(confirm=True))
         print(f"Sealed to {out}.")
         print(f"Now delete {src} from anywhere the AI can reach. The key is not stored anywhere.")
@@ -46,15 +53,19 @@ def evaluate_main(argv):
         print(f"Hypothesis: {int(argv[0]):03d}\n")
         print(f"N hypotheses tested: {r['n_tested']}")
         print(f"Required t-stat: {r['required_t_stat']}\n")
+        print(f"Frozen terms: cost {r['cost_round_trip']:.2%} round trip, minimum {r['min_trades']} trades, "
+              f"Newey-West lag {r['nw_lag']}\n")
         if "t_stat" in r:
             print("Observed:")
             print(f"Days: {r['days']}")
             print(f"Trades: {r['trades']}")
-            print(f"Net return: {r['net_return']:+.1%}")
+            print(f"Net return: {r['net_return']:+.1%} (mean daily {r['mean_daily_net']:+.4%})")
             print(f"Benchmark return: {r['benchmark_return']:+.1%}")
-            print(f"t-stat: {r['t_stat']:.2f}\n")
+            print(f"Exits: {r['takeover_exits']} takeover, {r['delisted_exits']} delisted, "
+                  f"{r['optimistic_exits']} optimistic (halt or unlabeled, at last traded price)")
+            print(f"t-stat (Newey-West): {r['t_stat']:.2f}\n")
         line = f"RECOMMENDED: {r['result']}" + (f" ({r['category']})" if r["category"] else "")
-        if r["category"] in ("DATA_FAILED", "IMPLEMENTATION_FAILED"):
+        if r.get("detail"):
             line += f": {r['detail']}"
         print(line)
         print(f"\nNot final until you confirm it: confirm {int(argv[0])} <CLASSIFICATION>")
@@ -86,6 +97,10 @@ def show_log():
     n = examlog.n_tested(records)
     print(f"N = {n} ({len(examlog.priors(records))} imported, {len(examlog.exams(records))} examined here); "
           f"next threshold {backtest.threshold(n + 1):.2f}\n")
+    for f in examlog.exam_files(records):
+        print(f"Sealed exam: {f['first_date']} to {f['last_date']}, {f['tickers']} tickers "
+              f"(sealed {f['sealed_at']})")
+    print()
     for p in examlog.priors(records):
         t = f"t={p['t_stat']:+.2f}" if p["t_stat"] is not None else ""
         print(f"{p['decided'] or '-':<20}  {p['id']:<11}  {p['title'][:40]:<40}  {p['outcome']:<13} {t}  (imported)")
@@ -134,7 +149,14 @@ def preflight_main(argv):
 
     def go():
         h = core.get(core.connect(), int(argv[0]))
+        preds = sorted(h.dir.glob("prediction*.md"), key=lambda p: (len(p.name), p.name))
+        try:
+            t = backtest.terms(preds[-1].read_text())
+        except backtest.TermsMissing as e:
+            raise core.LoopError(f"{preds[-1].name}: {e}\nAdd them before freezing.") from None
         preflight.check(h.dir / "strategy.py")
         print(f"Preflight passed for {h.dir.relative_to(core.root())}/strategy.py "
               f"({len(preflight.cases())} ugly cases).")
+        print(f"Terms in {preds[-1].name}: cost {t['cost_round_trip']:.2%} round trip, "
+              f"minimum {t['min_trades']} trades, Newey-West lag {t['nw_lag']}.")
     return _run(go)

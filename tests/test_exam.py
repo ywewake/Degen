@@ -20,6 +20,7 @@ from helpers import git, make_repo_with_protected_origin
 from lab import backtest, core, examlog, sandbox, sealed
 
 KEY = "correct horse battery staple"
+TERMS = "Cost round trip: 2%\nMinimum trades: 1\nNewey-West lag: 5\n"
 HAS_BWRAP = shutil.which("bwrap") is not None
 
 PICK_WIN = """
@@ -41,12 +42,13 @@ def generate_signals(prices):
 def exam_csv(days=120, seed=1) -> bytes:
     rng = random.Random(seed)
     px = {"WIN.V": 1.0, "AAA.V": 1.0, "BBB.V": 1.0, "CCC.TO": 1.0}
-    lines = ["date,ticker,close,volume"]
+    lines = ["date,ticker,open,close,volume"]
     for i in range(days):
         for t in px:
             drift = 0.01 if t == "WIN.V" else 0.0
-            px[t] *= 1 + drift + rng.gauss(0, 0.01)
-            lines.append(f"2023-{1 + i // 28:02d}-{1 + i % 28:02d},{t},{px[t]:.6f},1000")
+            op = px[t] * (1 + drift / 2 + rng.gauss(0, 0.005))
+            px[t] = op * (1 + drift / 2 + rng.gauss(0, 0.005))
+            lines.append(f"2023-{1 + i // 28:02d}-{1 + i % 28:02d},{t},{op:.6f},{px[t]:.6f},1000")
     return ("\n".join(lines) + "\n").encode()
 
 
@@ -74,7 +76,7 @@ class ExamTest(unittest.TestCase):
     def hypothesis(self, strategy_src=PICK_WIN, idea="Winners keep winning"):
         h = core.new_idea(idea)
         (h.dir / "hypothesis.md").write_text(f"IDEA\n\n{idea}\n")
-        (h.dir / "prediction.md").write_text(f"PREDICTION\n\n{idea} beats the benchmark.\n")
+        (h.dir / "prediction.md").write_text(f"PREDICTION\n\n{idea} beats the benchmark.\n\n{TERMS}")
         (h.dir / "strategy.py").write_text(strategy_src)
         core.freeze(h.id)
         core.attempt(h.id)
@@ -117,8 +119,8 @@ class ExamTest(unittest.TestCase):
         h = self.hypothesis()
         sealed.evaluate(h.id, KEY)
         records = examlog.fetch()[1]
-        self.assertEqual([r["type"] for r in records], ["exam", "result"])
-        self.assertEqual(records[1]["result"]["result"], "PASS")
+        self.assertEqual([r["type"] for r in records], ["exam_file", "exam", "result"])
+        self.assertEqual(records[2]["result"]["result"], "PASS")
 
     # ---- the sandbox: the strategy cannot leak the exam
 
@@ -174,15 +176,15 @@ class ExamTest(unittest.TestCase):
         log = subprocess.run(["git", "-C", str(self.remote), "log", "-p", "exam-log"],
                              capture_output=True, text=True).stdout
         self.assertNotIn("LEAK", json.dumps(r) + log)
-        self.assertNotIn("2023-01-01", json.dumps(r) + log)
+        self.assertNotIn("('2023-01-01'", json.dumps(r) + log)  # the repr of the leaked price rows
 
     def test_strategy_cannot_look_ahead(self):
         # Each day the strategy reports how many dates it can see, as a weight.
         src = Path(self.tmp.name) / "s.py"
         src.write_text("def generate_signals(prices):\n"
-                       "    n = len({d for v in prices.values() for d, _, _ in v})\n"
+                       "    n = len({d for v in prices.values() for d, _, _, _ in v})\n"
                        "    return {'A': n / 1000}\n")
-        days = [(f"2024-01-{i + 1:02d}", [["A", 1.0, 1.0]]) for i in range(20)]
+        days = [(f"2024-01-{i + 1:02d}", [["A", 1.0, 1.0, 1.0]]) for i in range(20)]
         weights = sandbox.run(src, days, timeout=30)
         self.assertEqual([w["A"] for w in weights], [(i + 1) / 1000 for i in range(20)])
 
@@ -190,7 +192,7 @@ class ExamTest(unittest.TestCase):
         src = Path(self.tmp.name) / "s.py"
         src.write_text("def generate_signals(prices):\n    while True:\n        pass\n")
         with self.assertRaisesRegex(sandbox.StrategyFailed, "timed out"):
-            sandbox.run(src, [("2024-01-01", [["A", 1.0, 1.0]])], timeout=2)
+            sandbox.run(src, [("2024-01-01", [["A", 1.0, 1.0, 1.0]])], timeout=2)
 
     def test_no_sandbox_no_run(self):
         with mock.patch("shutil.which", return_value=None):
@@ -328,26 +330,103 @@ class JudgeTest(unittest.TestCase):
         self.assertEqual(backtest.threshold(90), 3.0)
         self.assertAlmostEqual(backtest.threshold(1000), (2 * __import__("math").log(1000)) ** 0.5)
 
-    def test_parse_cleans_and_rejects(self):
-        days = backtest.parse(b"date,ticker,close,volume\n"
-                              b"2024-01-03,A,2,1\n2024-01-02,A,1,\n2024-01-02,B,0,5\n"
-                              b"bad,A,1,1\n2024-01-04,A,,1\n2024-01-04,B,3,-7\n")
-        self.assertEqual(days, [("2024-01-02", [["A", 1.0, 0.0]]), ("2024-01-03", [["A", 2.0, 1.0]]),
-                                ("2024-01-04", [["B", 3.0, 0.0]])])
-        for bad in (b"date,ticker,close,volume\n2024-01-02,A,1,1\n2024-01-02,A,1,1\n2024-01-03,A,1,1\n",
-                    b"date,ticker,close,volume\n2024-01-02,A,1,1\n", b"a,b\n1,2\n", b"\xff\xfe"):
-            with self.assertRaises(backtest.DataFailed):
+    # ---- frozen terms
+
+    def test_terms_are_read_from_the_prediction(self):
+        t = backtest.terms("PREDICTION\n\nx\n\ncost round trip: 2 %\nMinimum trades: 100\nNewey-West lag: 8\n")
+        self.assertEqual(t, {"cost_round_trip": 0.02, "min_trades": 100, "nw_lag": 8})
+
+    def test_terms_missing_or_bad_are_refused(self):
+        for text, why in (("PREDICTION\n\nx\n", "Cost round trip: 2%"),
+                          (TERMS.replace("Newey-West lag: 5\n", ""), "Newey-West lag"),
+                          (TERMS + "Cost round trip: 1%\n", "appears twice"),
+                          (TERMS.replace("2%", "two percent"), "percentage"),
+                          (TERMS.replace("Minimum trades: 1", "Minimum trades: 0"), "minimum trades >= 1")):
+            with self.assertRaisesRegex(backtest.TermsMissing, why):
+                backtest.terms(text)
+
+    # ---- data
+
+    def test_parse_cleans_and_reads_endings(self):
+        days, endings = backtest.parse(
+            b"date,ticker,open,close,volume,event,deal_price\n"
+            b"2024-01-03,A,1.9,2,1,,\n2024-01-02,A,0.9,1,,,\n2024-01-02,B,0,5,5,,\n"
+            b"bad,A,1,1,1,,\n2024-01-04,A,2,,1,,\n2024-01-04,B,3,3,-7,takeover,4.5\n")
+        self.assertEqual(days, [("2024-01-02", [["A", 0.9, 1.0, 0.0]]), ("2024-01-03", [["A", 1.9, 2.0, 1.0]]),
+                                ("2024-01-04", [["B", 3.0, 3.0, 0.0]])])
+        self.assertEqual(endings, {"B": ("takeover", 4.5)})
+
+    def test_parse_rejects(self):
+        h = b"date,ticker,open,close,volume,event,deal_price\n"
+        for bad, why in ((h + b"2024-01-02,A,1,1,1,,\n2024-01-02,A,1,1,1,,\n2024-01-03,A,1,1,1,,\n", "duplicate"),
+                         (h + b"2024-01-02,A,1,1,1,,\n", "two trading days"),
+                         (b"date,ticker,close,volume\n2024-01-02,A,1,1\n", "header"),
+                         (h + b"2024-01-02,A,1,1,1,takeover,\n2024-01-03,B,1,1,1,,\n", "deal_price"),
+                         (h + b"2024-01-02,A,1,1,1,bankrupt,\n2024-01-03,B,1,1,1,,\n", "unknown event"),
+                         (h + b"2024-01-02,A,1,1,1,delisted,\n2024-01-03,A,1,1,1,,\n", "last row"),
+                         (b"\xff\xfe", "UTF-8")):
+            with self.assertRaisesRegex(backtest.DataFailed, why):
                 backtest.parse(bad)
 
-    def test_score_gaps_delisting_and_costs(self):
-        days = [("d1", [["A", 10, 1], ["B", 10, 1]]), ("d2", [["A", 11, 1], ["B", 10, 1]]),
-                ("d3", [["A", 11, 1]]), ("d4", [["A", 11, 1], ["B", 5, 1]])]
-        s = backtest.score(days, [{"A": 1}, {"B": 1}, {}, {}])
-        # +10% - 0.5% cost; B marked at its next close (-50%) - 1% cost; exit cost 0.5%
-        self.assertAlmostEqual(s["net_return"], 1.095 * 0.49 * 0.995 - 1)
-        self.assertEqual(s["trades"], 2)
-        s = backtest.score(days[:3], [{"B": 1}, {"B": 1}, {}])
-        self.assertAlmostEqual(s["net_return"], -1.0)  # B never trades again
+    # ---- scoring (all hand-calculated)
+
+    def test_entry_at_next_open_with_costs(self):
+        days = [("d0", [["A", 10, 10, 1], ["B", 10, 10, 1]]), ("d1", [["A", 11, 12, 1], ["B", 10, 10, 1]]),
+                ("d2", [["A", 12, 12, 1]])]
+        s = backtest.score(days, [{"A": 1}, {}, {}], {}, cost_round_trip=0.02, nw_lag=0)
+        # Bought at d1's open (11), not d0's close (10): +12/11-1, minus 1% each way.
+        self.assertAlmostEqual(s["net_return"], (1 + 12 / 11 - 1 - 0.01) * (1 - 0.01) - 1)
+        self.assertEqual(s["trades"], 1)
+        self.assertAlmostEqual(s["benchmark_return"], 1.1 * 1.0 - 1)
+
+    def test_takeover_failure_and_halt_endings(self):
+        days = [("d0", [["F", 10, 10, 1], ["H", 10, 10, 1], ["T", 10, 10, 1], ["X", 1, 1, 1]]),
+                ("d1", [["F", 10, 10, 1], ["H", 10, 10, 1], ["T", 10, 10, 1], ["X", 1, 1, 1]]),
+                ("d2", [["X", 1, 1, 1]])]
+        w = {"T": 0.3, "F": 0.3, "H": 0.3}
+        s = backtest.score(days, [w, w, {}], {"T": ("takeover", 15.0), "F": ("delisted", None)},
+                           cost_round_trip=0.02, nw_lag=0)
+        # d1: buy 0.9 at the open (0.9% cost). d2: T +50% at the deal price, F -100%, H at last price.
+        self.assertAlmostEqual(s["net_return"], (1 - 0.009) * (1 + 0.3 * 0.5 - 0.3) - 1)
+        self.assertEqual((s["takeover_exits"], s["delisted_exits"], s["optimistic_exits"]), (1, 1, 1))
+
+    def test_halted_position_is_stuck_then_marked_on_reopening(self):
+        days = [("d0", [["S", 10, 10, 1]]), ("d1", [["S", 10, 10, 1]]), ("d2", [["Y", 1, 1, 1]]),
+                ("d3", [["S", 20, 20, 1], ["Y", 1, 1, 1]])]
+        s = backtest.score(days, [{"S": 1}, {"S": 1}, {}, {}], {}, cost_round_trip=0.02, nw_lag=0)
+        # Can't sell while halted on d2; reopens at 20 on d3 (+100%), sold at that open.
+        self.assertAlmostEqual(s["net_return"], (1 - 0.01) * 1.0 * (1 + 1.0 - 0.01) - 1)
+        self.assertEqual(s["trades"], 1)
+
+    def test_newey_west(self):
+        self.assertAlmostEqual(backtest.newey_west_t([1, 2, 3, 4], 0), 2.5 / (1.25 / 4) ** 0.5)
+        self.assertAlmostEqual(backtest.newey_west_t([1, 2, 3, 4], 1), 4.0)
+        self.assertEqual(backtest.newey_west_t([1, 1, 1], 2), 0.0)
+
+    # ---- outcomes
+
+    def outcome(self, **stats):
+        base = {"days": 100, "trades": 50, "net_return": 0.1, "benchmark_return": 0.0, "mean_daily_net": 0.001,
+                "t_stat": 4.0, "takeover_exits": 0, "delisted_exits": 0, "optimistic_exits": 0}
+        days = [("d0", [["A", 1, 1, 1]]), ("d1", [["A", 1, 1, 1]])]
+        csv_ = b"date,ticker,open,close,volume\n2024-01-02,A,1,1,1\n2024-01-03,A,1,1,1\n"
+        with mock.patch.object(backtest.sandbox, "run", return_value=[{}, {}]), \
+                mock.patch.object(backtest, "score", return_value={**base, **stats}):
+            return backtest.evaluate(csv_, None, n_tested=1,
+                                     terms={"cost_round_trip": 0.02, "min_trades": 20, "nw_lag": 5})
+
+    def test_outcomes(self):
+        cases = [({}, "PASS", None),
+                 ({"trades": 19}, "INCONCLUSIVE", None),
+                 ({"t_stat": 2.5}, "INCONCLUSIVE", None),
+                 ({"t_stat": 3.0}, "INCONCLUSIVE", None),
+                 ({"mean_daily_net": -0.0001}, "FAIL", "HYPOTHESIS_FAILED"),
+                 ({"t_stat": -1.0}, "FAIL", "HYPOTHESIS_FAILED"),
+                 ({"t_stat": 0.0}, "FAIL", "HYPOTHESIS_FAILED")]
+        for stats, result, category in cases:
+            r = self.outcome(**stats)
+            self.assertEqual((r["result"], r["category"]), (result, category), stats)
+        self.assertEqual(self.outcome(mean_daily_net=-0.0001)["detail"], "beat the bar but lost money after costs")
 
 
 if __name__ == "__main__":

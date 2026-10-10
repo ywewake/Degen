@@ -41,6 +41,11 @@ Expected direction:
 Falsification:
 If the sealed test does not exceed the threshold,
 the hypothesis is considered unsuccessful.
+
+Terms (frozen with this prediction; the judge refuses an exam without them):
+Cost round trip: 2%
+Minimum trades: 100
+Newey-West lag: 20
 """
 
 STRATEGY_TEMPLATE = '''\

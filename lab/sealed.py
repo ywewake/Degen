@@ -72,11 +72,24 @@ def ask_passphrase(confirm: bool = False) -> str:
     return p
 
 
+def describe(plaintext: bytes) -> dict:
+    """What period and universe an exam covers. Refuses data the judge couldn't score."""
+    try:
+        days, endings = backtest.parse(plaintext)
+    except backtest.DataFailed as e:
+        raise LoopError(f"DATA FAILED: {e}. Nothing was sealed.") from None
+    tickers = {r[0] for _, rows in days for r in rows}
+    return {"first_date": days[0][0], "last_date": days[-1][0], "trading_days": len(days),
+            "tickers": len(tickers), "rows": sum(len(rows) for _, rows in days),
+            "events": {e: sum(1 for v, _ in endings.values() if v == e) for e in backtest.EVENTS}}
+
+
 def seal(plaintext: Path, passphrase: str) -> Path:
     """Encrypt the exam data. Run by the human, ideally where the AI has never had access.
 
     The exam log's identity (its first commit) is sealed in, authenticated by
-    the key, so the exam can only ever be recorded in that one log.
+    the key, so the exam can only ever be recorded in that one log. The exam's
+    period and size are recorded in the exam log, permanently.
     """
     if len(passphrase) < MIN_PASSPHRASE:
         raise LoopError(f"Key must be at least {MIN_PASSPHRASE} characters.")
@@ -84,6 +97,7 @@ def seal(plaintext: Path, passphrase: str) -> Path:
     if out.exists():
         raise LoopError(f"{out} already exists. There is one exam; "
                         "refusing to replace it.")
+    info = describe(plaintext.read_bytes())
     genesis = examlog.genesis(examlog.fetch()[0]).encode()
     salt, nonce = secrets.token_bytes(16), secrets.token_bytes(12)
     header = MAGIC + bytes([len(genesis)]) + genesis + salt + nonce
@@ -91,6 +105,7 @@ def seal(plaintext: Path, passphrase: str) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(header + ct)
     out.chmod(0o444)
+    examlog.record_exam_file({"sha256": hashlib.sha256(header + ct).hexdigest(), **info})
     return out
 
 
@@ -145,6 +160,11 @@ def evaluate(hid: int, passphrase: str, scorer=backtest.evaluate) -> dict:
     pred = ws.execute("SELECT * FROM predictions WHERE hypothesis_id = ? ORDER BY version DESC LIMIT 1",
                         (h.id,)).fetchone()
     strategy = core.root() / last["strategy_path"]
+    try:
+        terms = backtest.terms((core.root() / pred["path"]).read_text())
+    except backtest.TermsMissing as e:
+        raise LoopError(f"Prediction {h.id:03d} cannot be judged: {e}\n"
+                        "Nothing was used. Fixing it needs `./loop revise`, which costs an attempt.") from None
 
     preflight.check(strategy)       # a typo costs nothing
     genesis, data = _open(passphrase)  # wrong key fails here, before the exam is used up
@@ -169,7 +189,7 @@ def evaluate(hid: int, passphrase: str, scorer=backtest.evaluate) -> dict:
         raise
     # The exam is now recorded as taken, remotely and locally. Only now does the strategy see data.
     # The evaluator only recommends. A human confirms the classification (`confirm`).
-    result = {**scorer(data, strategy, n_tested=n), "status": "RECOMMENDED"}
+    result = {**scorer(data, strategy, n_tested=n, terms=terms), "status": "RECOMMENDED"}
     conn.execute("INSERT INTO sealed_results (evaluation_id, result_json) VALUES (?, ?)",
                  (cur.lastrowid, json.dumps(result, sort_keys=True)))
     examlog.record_result(h.id, last["strategy_sha256"], result)

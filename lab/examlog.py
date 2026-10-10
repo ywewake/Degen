@@ -91,6 +91,16 @@ def exams(records: list[dict]) -> list[dict]:
     return [r for r in records if r.get("type") == "exam"]
 
 
+def exam_files(records: list[dict]) -> list[dict]:
+    return [r for r in records if r.get("type") == "exam_file"]
+
+
+def record_exam_file(info: dict) -> None:
+    head, records = fetch()
+    rec = {"type": "exam_file", "sealed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **info}
+    _append(head, records + [rec], f"Sealed exam covering {info['first_date']}..{info['last_date']}")
+
+
 def priors(records: list[dict]) -> list[dict]:
     """Hypotheses tested outside this loop, imported so N counts them."""
     return [r for r in records if r.get("type") == "prior"]
@@ -101,7 +111,7 @@ def n_tested(records: list[dict]) -> int:
 
 
 PRIOR_OUTCOMES = ("PASS", "FAIL", "INCONCLUSIVE", "PENDING")
-CLASSIFICATIONS = ("PASS", "HYPOTHESIS_FAILED", "IMPLEMENTATION_FAILED", "DATA_FAILED")
+CLASSIFICATIONS = ("PASS", "INCONCLUSIVE", "HYPOTHESIS_FAILED", "IMPLEMENTATION_FAILED", "DATA_FAILED")
 
 
 def parse_history(text: str) -> list[dict]:
@@ -187,6 +197,9 @@ def record_exam(fields: dict, sealed_genesis: str) -> int:
     if genesis(head) != sealed_genesis:
         raise LoopError("WRONG EXAM LOG. This is not the exam log the sealed exam was bound to "
                         "when it was sealed. Check where `origin` points.")
+    if fields["exam_sha256"] not in {f["sha256"] for f in exam_files(records)}:
+        raise LoopError("This sealed exam file was never recorded in the exam log. "
+                        "Only an exam sealed with `seal` can be used.")
     keys = ("strategy_sha256", "prediction_sha256", "hypothesis_sha256")
     for old in exams(records):
         for k in keys:

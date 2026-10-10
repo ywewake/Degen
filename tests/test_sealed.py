@@ -15,11 +15,11 @@ from helpers import make_repo_with_protected_origin
 from lab import broker, core, devdata, examlog, sealed
 
 KEY = "correct horse battery staple"
-EXAM = b"date,ticker,close,volume\n2024-01-02,FAKE.V,1.23,100\n2024-01-03,FAKE.V,1.31,200\n"
+EXAM = b"date,ticker,open,close,volume\n2024-01-02,FAKE.V,1.20,1.23,100\n2024-01-03,FAKE.V,1.25,1.31,200\n"
 
 
 def counting_scorer(calls):
-    def scorer(data, strategy_path, n_tested):
+    def scorer(data, strategy_path, n_tested, terms):
         calls.append((data, strategy_path))
         return {"rows": data.count(b"\n") - 1}
     return scorer
@@ -49,7 +49,7 @@ class SealedTest(unittest.TestCase):
         h = core.new_idea("Boring idea")
         d = h.dir
         (d / "hypothesis.md").write_text("IDEA\n\nx\n")
-        (d / "prediction.md").write_text("PREDICTION\n\ny\n")
+        (d / "prediction.md").write_text("PREDICTION\n\ny\n\nCost round trip: 2%\nMinimum trades: 1\nNewey-West lag: 5\n")
         (d / "strategy.py").write_text("def generate_signals(prices):\n    return {}\n")
         core.freeze(h.id)
         core.attempt(h.id)
@@ -136,7 +136,7 @@ class SealedTest(unittest.TestCase):
     def test_exam_is_recorded_before_strategy_sees_data(self):
         h = self.hypothesis_with_attempt()
 
-        def crashing_scorer(data, path, n_tested):
+        def crashing_scorer(data, path, n_tested, terms):
             raise RuntimeError("crash mid-exam")
         with self.assertRaises(RuntimeError):
             sealed.evaluate(h.id, KEY, crashing_scorer)

@@ -15,7 +15,7 @@ from unittest import mock
 
 from helpers import make_repo_with_protected_origin
 from lab import core, examlog, judge, sealed, sealed_cli
-from test_exam import PICK_WIN, exam_csv
+from test_exam import PICK_WIN, TERMS, exam_csv
 
 KEY = "correct horse battery staple"
 HISTORY = """id,title,outcome,t_stat,decided,note
@@ -60,7 +60,7 @@ class HistoryAndConfirmationTest(unittest.TestCase):
     def examined(self):
         h = core.new_idea("Winners keep winning")
         (h.dir / "hypothesis.md").write_text("IDEA\n\nwinners\n")
-        (h.dir / "prediction.md").write_text("PREDICTION\n\nwinners win\n")
+        (h.dir / "prediction.md").write_text("PREDICTION\n\nwinners win\n\n" + TERMS)
         (h.dir / "strategy.py").write_text(PICK_WIN)
         core.freeze(h.id)
         core.attempt(h.id)
