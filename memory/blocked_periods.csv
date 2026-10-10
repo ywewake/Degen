@@ -1,3 +1,4 @@
 markets,start,end,reason
 TSX;TSXV;CSE,2021-01-04,2024-12-31,"Muse's development panel (dates confirmed by Muse 2026-10-10)."
 TSX;TSXV;CSE,2025-01-02,2026-10-02,"Muse's sealed panel, used by 16 hypotheses (dates confirmed by Muse 2026-10-10)."
+US,2021-01-01,2026-10-02,"US stocks used by Test F2 (exact split dates lost; outer range, erring toward over-blocking). Confirmed by Muse and cowork 2026-10-10."

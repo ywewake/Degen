@@ -289,6 +289,11 @@ class ExamTest(unittest.TestCase):
             sealed.check_fresh(info)
         sealed.check_fresh({**info, "first_date": "2026-10-05", "last_date": "2026-12-31", "markets": ["TSX"]})
         self.assertEqual(sealed.markets_of(["A.TO", "b.v", "C.CN", "D"]), ["CSE", "TSX", "TSXV", "UNKNOWN"])
+        # US tickers carry no suffix, so they're UNKNOWN and caught by the US block (2021-01-01 on),
+        # even on days before the Canadian blocks start.
+        with self.assertRaisesRegex(core.LoopError, "Test F2"):
+            sealed.check_fresh({"first_date": "2021-01-01", "last_date": "2021-01-02", "markets": ["UNKNOWN"]})
+        sealed.check_fresh({"first_date": "2021-01-01", "last_date": "2021-01-02", "markets": ["TSX"]})
 
     def test_missing_exam_log_blocks_exam(self):
         git(self.root, "remote", "set-url", "origin", str(Path(self.tmp.name) / "nowhere.git"))

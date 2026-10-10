@@ -75,8 +75,11 @@ Fixed rules:
   refuse data overlapping a period already tested on. Markets come from ticker suffixes (`.TO` TSX,
   `.V` TSXV, `.CN` CSE); an unrecognised suffix counts as unknown, and every block applies to it. Removing a
   block is a code change, so it reaches the judge only through an approved `degen-judge update`.
-  Currently blocked for TSX/TSXV/CSE: 2021-01-04 to 2024-12-31 (Muse's development panel) and
-  2025-01-02 to 2026-10-02 (Muse's sealed panel).
+  Currently blocked: TSX/TSXV/CSE 2021-01-04 to 2024-12-31 (Muse's development panel) and
+  2025-01-02 to 2026-10-02 (Muse's sealed panel); US 2021-01-01 to 2026-10-02 (Test F2, outer range).
+  Every historical year is blocked, so exams from H18 on are graded on forward data.
+- `memory/history-18.csv`: the 18 hypotheses tested before this room existed, ready for
+  `degen-judge import-history` (check each row against the ledger before typing APPROVE).
 - **One exam per week** (Monday to Sunday, America/Vancouver), checked against the exam log.
 
 **The sandbox** (`lab/sandbox.py`, bubblewrap): no network, nothing writable, no view of the repo or home directory, 2 GB memory, time limit. No sandbox → nothing runs. The strategy's error output is never shown for sealed runs (it could carry exam data).
