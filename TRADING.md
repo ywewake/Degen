@@ -75,8 +75,9 @@ Fixed rules:
   refuse data overlapping a period already tested on. Markets come from ticker suffixes (`.TO` TSX,
   `.V` TSXV, `.CN` CSE); an unrecognised suffix counts as unknown, and every block applies to it. Removing a
   block is a code change, so it reaches the judge only through an approved `degen-judge update`.
-  Currently blocked: TSX/TSXV/CSE 2021-01-04 to 2024-12-31 (Muse's development panel) and
-  2025-01-02 to 2026-10-02 (Muse's sealed panel); US 2021-01-01 to 2026-10-02 (Test F2, outer range).
+  Currently blocked: TSX/TSXV/CSE 2021-01-04 to 2024-12-31 (Muse's development panel),
+  2025-01-02 to 2026-10-02 (Muse's sealed panel) and 2026-10-03 to 2026-10-10 (gap closed);
+  US 2021-01-01 to 2026-10-02 (Test F2, outer range). Canadian forward data starts 2026-10-11.
   Every historical year is blocked, so exams from H18 on are graded on forward data.
 - `memory/history-18.csv`: the 18 hypotheses tested before this room existed, ready for
   `degen-judge import-history` (check each row against the ledger before typing APPROVE).

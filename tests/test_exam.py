@@ -287,7 +287,9 @@ class ExamTest(unittest.TestCase):
         info = {"first_date": "2026-01-05", "last_date": "2026-02-05", "markets": ["UNKNOWN"]}
         with self.assertRaisesRegex(core.LoopError, "BLOCKED PERIOD"):
             sealed.check_fresh(info)
-        sealed.check_fresh({**info, "first_date": "2026-10-05", "last_date": "2026-12-31", "markets": ["TSX"]})
+        with self.assertRaisesRegex(core.LoopError, "Gap after Muse's sealed panel"):
+            sealed.check_fresh({**info, "first_date": "2026-10-05", "last_date": "2026-12-31", "markets": ["TSX"]})
+        sealed.check_fresh({**info, "first_date": "2026-10-11", "last_date": "2026-12-31", "markets": ["TSX"]})
         self.assertEqual(sealed.markets_of(["A.TO", "b.v", "C.CN", "D"]), ["CSE", "TSX", "TSXV", "UNKNOWN"])
         # US tickers carry no suffix, so they're UNKNOWN and caught by the US block (2021-01-01 on),
         # even on days before the Canadian blocks start.

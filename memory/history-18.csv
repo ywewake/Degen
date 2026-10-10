@@ -1,19 +1,19 @@
 id,title,outcome,t_stat,decided,note
-H1,Micro-cap floor strategy,FAIL,,2026-10-05,Stages: dev+sealed.
-H2,Test A commodity lead-lag,FAIL,,2026-10-05,Stages: train/validation/OOS.
-H3,Test F2 liquid-stock floor,FAIL,,2026-10-06,Stages: train/validation/OOS.
-H4,Test B tax-loss January rebound,FAIL,,2026-10-06,Stages: train/validation/OOS.
-H5,CA micro-cap momentum 12-1,FAIL,,2026-10-08,Stages: dev+sealed.
-H6,Micro-cap double-bottom reversal,FAIL,,2026-10-08,Stages: dev+sealed.
-H7,CA micro-cap low-volatility anomaly,FAIL,,2026-10-08,Stages: dev.
-H8,CA micro-cap bottom-decile 12-1 reversal,FAIL,,2026-10-08,Stages: dev.
-H9,"Overnight gap fade, liquid-only",FAIL,-3.19,2026-10-09,Stages: dev. Confirmed dead 2026-10-10.
-H10,CA micro-cap nominal-price quality tilt,FAIL,,2026-10-09,Stages: dev.
-H11,CA micro-cap Canada-inflation regime filter,INCONCLUSIVE,,2026-10-09,Stages: dev. Insufficient evidence.
-H12,CA micro-cap VIX risk-off filter,INCONCLUSIVE,,2026-10-09,Stages: dev+sealed. Insufficient evidence.
-H13,CA micro-cap oil-trend regime exposure,FAIL,,2026-10-09,Stages: dev+sealed.
-H14,CA micro-cap forward-split signaling drift,FAIL,,2026-10-09,Stages: dev+sealed.
-H15,CA micro-cap December second-half seasonal,FAIL,,2026-10-09,Stages: dev.
-H16,CA micro-cap seasoned-listing premium,FAIL,,2026-10-09,Stages: dev.
+H1,"Micro-cap floor strategy",FAIL,,2026-10-05,"Stage: dev+sealed. CA micro-caps, 2021-01 to 2026-10."
+H2,"Test A commodity lead-lag",FAIL,,2026-10-05,"Stage: train/validation/OOS (2021-24/2025/2026). 285 mapped juniors."
+H3,"Test F2 liquid-stock floor",FAIL,,2026-10-06,"Stage: train/validation/OOS. 8,221 US+CA liquid stocks."
+H4,"Test B tax-loss January rebound",FAIL,,2026-10-06,"Stage: train/validation/OOS."
+H5,"CA micro-cap momentum 12-1",FAIL,-11.01,2026-10-08,"Stage: dev+sealed. Dev t=-11.01, sealed t=-10.17."
+H6,"Micro-cap double-bottom reversal",FAIL,-2.52,2026-10-08,"Stage: dev+sealed. Dev t=-2.52 on 36 trades."
+H7,"CA micro-cap low-volatility anomaly",FAIL,0.00,2026-10-08,"Stage: dev only. Sealed skipped, t-stat zero decisive."
+H8,"CA micro-cap bottom-decile 12-1 reversal",FAIL,-9.98,2026-10-08,"Stage: dev only. Sealed skipped, t=-9.98 decisive."
+H9,"Overnight gap fade, liquid-only",FAIL,-3.19,2026-10-10,"Stage: dev only. Sealed skipped. Confirmed dead by human 2026-10-10."
+H10,"CA micro-cap nominal-price quality tilt",FAIL,-13.92,2026-10-09,"Stage: dev only."
+H11,"CA micro-cap Canada-inflation regime filter",INCONCLUSIVE,,2026-10-09,"Stage: dev only. Insufficient evidence, 2 blocks."
+H12,"CA micro-cap VIX risk-off filter",INCONCLUSIVE,,2026-10-09,"Stage: dev+sealed. Insufficient evidence."
+H13,"CA micro-cap oil-trend regime exposure",FAIL,,2026-10-09,"Stage: dev+sealed."
+H14,"CA micro-cap forward-split signaling drift",FAIL,,2026-10-09,"Stage: dev+sealed."
+H15,"CA micro-cap December second-half seasonal",FAIL,,2026-10-09,"Stage: dev only. Sealed skipped, structurally unconfirmable."
+H16,"CA micro-cap seasoned-listing premium",FAIL,,2026-10-09,"Stage: dev only."
 H-2026-05,"Crypto attention shock + positive tone, 7-day hold (unrelated to H5)",PENDING,,,"Registered. Top-100 crypto, LunarCrush daily snapshots + Binance 1h bars. Forward test frozen 2026-10-06/10, sha256 de3563b7…f690. Own bar: 99% CI, k=5. Verdict ~Aug 2027."
 H17,"Insider cluster buys, 40-day hold, matched control",PENDING,,,"Registered. TSX/TSXV/CSE. Forward test, rules v2 frozen 2026-10-10. NW t > 3.0 AND mean net > 0. Verdict 2027-06-12."
