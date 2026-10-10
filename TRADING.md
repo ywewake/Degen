@@ -37,7 +37,7 @@ DEVELOPMENT (AI + strategy)  ──X──  data/sealed/exam.sealed (AES-256-GCM
 | `./seal_data <file>` | Human only: encrypts the exam, binding it to this exam log. Refuses to replace an existing exam |
 | `./preflight <id>` | Runs `strategy.py` on ugly synthetic data in the sandbox. Costs nothing |
 | `./evaluate_sealed <id>` | The exam. Once per hypothesis, ever |
-| `./exam_log` | Every exam ever taken, N, and the next threshold |
+| `./exam_log` | Every exam ever taken plus imported history, N, the next threshold, and RECOMMENDED / CONFIRMED status |
 
 What `./evaluate_sealed` does, in order (everything before step 5 can fail without using the exam):
 1. Refuses if the evaluator code has uncommitted changes.
@@ -57,6 +57,24 @@ What `./evaluate_sealed` does, in order (everything before step 5 can fail witho
 **The sandbox** (`lab/sandbox.py`, bubblewrap): no network, nothing writable, no view of the repo or home directory, 2 GB memory, time limit. No sandbox → nothing runs. The strategy's error output is never shown for sealed runs (it could carry exam data).
 
 **Exam log**: records live on the `exam-log` branch, written with git plumbing (your working tree is never touched). N comes from here, not from the local database, so wiping local files cannot lower it.
+
+### History and the coroner rule
+This loop is the sealed-exam room for **H18 onward**. Ideas and H17's forward track stay in the
+research system. Two things connect them:
+
+- **Imported history counts toward N.** `degen-judge import-history <file.csv>` adds hypotheses tested
+  elsewhere to the exam log, permanently, after you type APPROVE. N = imported + examined here.
+  Re-importing an id is refused, so later merges from other ledgers only add. Format:
+  ```
+  id,title,outcome,t_stat,decided,note
+  H9,Overnight gap fade (liquid-only),FAIL,-3.19,2026-10-10,confirmed dead
+  H17,Insider cluster buys (forward),PENDING,,,rules frozen at forward/RULES-FROZEN.md
+  ```
+  `outcome` is PASS, FAIL, INCONCLUSIVE or PENDING; `t_stat` may be empty.
+- **Every result is RECOMMENDED until you confirm it.** `degen-judge confirm <id> <CLASSIFICATION>`
+  (PASS, HYPOTHESIS_FAILED, IMPLEMENTATION_FAILED or DATA_FAILED) asks for a one-line reason at the
+  terminal and records it in the exam log. You may override the evaluator's category. A confirmation
+  is final.
 
 ### The judge user (the real boundary)
 Everything in the workspace is writable by the AI, including the evaluator's own code. So the

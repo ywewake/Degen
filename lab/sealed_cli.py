@@ -53,10 +53,11 @@ def evaluate_main(argv):
             print(f"Net return: {r['net_return']:+.1%}")
             print(f"Benchmark return: {r['benchmark_return']:+.1%}")
             print(f"t-stat: {r['t_stat']:.2f}\n")
-        line = f"RESULT: {r['result']}"
+        line = f"RECOMMENDED: {r['result']}" + (f" ({r['category']})" if r["category"] else "")
         if r["category"] in ("DATA_FAILED", "IMPLEMENTATION_FAILED"):
-            line += f" ({r['category']}: {r['detail']})"
+            line += f": {r['detail']}"
         print(line)
+        print(f"\nNot final until you confirm it: confirm {int(argv[0])} <CLASSIFICATION>")
         print(f"Evaluator commit: {commit}")
     return _run(go)
 
@@ -68,19 +69,62 @@ def exam_log_main(argv):
             examlog.init()
             print(f"Created {examlog.REMOTE}/{examlog.BRANCH}. Protect it on GitHub now.")
         elif argv == []:
-            _, records = examlog.fetch()
-            exams = examlog.exams(records)
-            print(f"N = {len(exams)} exams; next threshold {backtest.threshold(len(exams) + 1):.2f}\n")
-            results = {(r["hypothesis_id"], r["strategy_sha256"]): r["result"]
-                       for r in records if r.get("type") == "result"}
-            for e in exams:
-                res = results.get((e["hypothesis_id"], e["strategy_sha256"]), {})
-                print(f"{e['started_at']}  {e['hypothesis_id']:03d}  {e['title'][:40]:<40}  "
-                      f"{res.get('result', 'NO RESULT')}")
+            show_log()
+        elif len(argv) == 2 and argv[0] == "import":
+            import_history(Path(argv[1]))
+        elif len(argv) == 3 and argv[0] == "confirm" and argv[1].isdigit():
+            confirm(int(argv[1]), argv[2])
         else:
-            print("usage: ./exam_log [init]", file=sys.stderr)
+            print("usage: ./exam_log [init | import <history.csv> | confirm <id> <CLASSIFICATION>]",
+                  file=sys.stderr)
             return 2
     return _run(go)
+
+
+def show_log():
+    _, records = examlog.fetch()
+    n = examlog.n_tested(records)
+    print(f"N = {n} ({len(examlog.priors(records))} imported, {len(examlog.exams(records))} examined here); "
+          f"next threshold {backtest.threshold(n + 1):.2f}\n")
+    for p in examlog.priors(records):
+        t = f"t={p['t_stat']:+.2f}" if p["t_stat"] is not None else ""
+        print(f"{p['decided'] or '-':<20}  {p['id']:<11}  {p['title'][:40]:<40}  {p['outcome']:<13} {t}  (imported)")
+    results = {(r["hypothesis_id"], r["strategy_sha256"]): r["result"]
+               for r in records if r.get("type") == "result"}
+    confirmed = {(r["hypothesis_id"], r["strategy_sha256"]): r["classification"]
+                 for r in records if r.get("type") == "confirmation"}
+    for e in examlog.exams(records):
+        key = (e["hypothesis_id"], e["strategy_sha256"])
+        res = results.get(key)
+        if key in confirmed:
+            status = f"CONFIRMED {confirmed[key]}"
+        elif res:
+            status = f"RECOMMENDED {res.get('category') or res['result']}"
+        else:
+            status = "NO RESULT"
+        print(f"{e['started_at']:<20}  {e['hypothesis_id']:03d}{'':<8}  {e['title'][:40]:<40}  {status}")
+
+
+def import_history(path: Path):
+    if not path.is_file():
+        raise core.LoopError(f"{path} is not a file.")
+    rows = examlog.parse_history(path.read_text())
+    for r in rows:
+        t = f"t={r['t_stat']:+.2f}" if r["t_stat"] is not None else ""
+        print(f"{r['id']:<11}  {r['title'][:45]:<45}  {r['outcome']:<13} {t}")
+    judge.confirm_at_terminal(f"\n{len(rows)} hypotheses will be added to the exam log PERMANENTLY. "
+                              "Each one raises N. Check the list against your ledger.", "APPROVE")
+    n = examlog.import_history(rows, path.name)
+    print(f"Imported {len(rows)}. N is now {n}.")
+
+
+def confirm(hid: int, classification: str):
+    if classification.upper() not in examlog.CLASSIFICATIONS:
+        raise core.LoopError(f"Classification must be one of {', '.join(examlog.CLASSIFICATIONS)}.")
+    reason = judge.ask_at_terminal(f"Why is hypothesis {hid:03d} {classification.upper()}? "
+                                   "(one line, recorded permanently): ")
+    examlog.confirm(hid, classification, reason)
+    print(f"Hypothesis {hid:03d} confirmed {classification.upper()}. This is final.")
 
 
 def preflight_main(argv):

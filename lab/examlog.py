@@ -11,6 +11,7 @@ Records are written with git plumbing, so the working tree is never touched.
 
 import json
 import os
+import secrets
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,7 +71,9 @@ def init() -> None:
                         f"refs/heads/{BRANCH}"], capture_output=True, text=True)
     if r.returncode == 0:
         raise LoopError(f"{REMOTE}/{BRANCH} already exists. The exam log is never re-created.")
-    _append(None, [], "Exam log created")
+    # The random nonce makes this log's first commit unique: the sealed exam is bound to it,
+    # so an independently created log can never have the same identity, even within the same second.
+    _append(None, [], f"Exam log created\n\nnonce: {secrets.token_hex(16)}")
 
 
 CODE_DIR = judge.CODE_DIR
@@ -88,12 +91,94 @@ def exams(records: list[dict]) -> list[dict]:
     return [r for r in records if r.get("type") == "exam"]
 
 
+def priors(records: list[dict]) -> list[dict]:
+    """Hypotheses tested outside this loop, imported so N counts them."""
+    return [r for r in records if r.get("type") == "prior"]
+
+
+def n_tested(records: list[dict]) -> int:
+    return len(exams(records)) + len(priors(records))
+
+
+PRIOR_OUTCOMES = ("PASS", "FAIL", "INCONCLUSIVE", "PENDING")
+CLASSIFICATIONS = ("PASS", "HYPOTHESIS_FAILED", "IMPLEMENTATION_FAILED", "DATA_FAILED")
+
+
+def parse_history(text: str) -> list[dict]:
+    """CSV with header id,title,outcome,t_stat,decided,note. One row per prior hypothesis."""
+    import csv
+    import io
+    reader = csv.DictReader(io.StringIO(text))
+    need = {"id", "title", "outcome", "t_stat", "decided", "note"}
+    if not reader.fieldnames or not need <= set(reader.fieldnames):
+        raise LoopError(f"History file needs the header: {','.join(sorted(need))}")
+    rows, seen = [], set()
+    for i, r in enumerate(reader, start=2):
+        rid, outcome = (r["id"] or "").strip(), (r["outcome"] or "").strip().upper()
+        if not rid or not (r["title"] or "").strip():
+            raise LoopError(f"Line {i}: id and title are required.")
+        if outcome not in PRIOR_OUTCOMES:
+            raise LoopError(f"Line {i}: outcome must be one of {', '.join(PRIOR_OUTCOMES)}.")
+        if rid in seen:
+            raise LoopError(f"Line {i}: id {rid} appears twice.")
+        seen.add(rid)
+        t = (r["t_stat"] or "").strip()
+        try:
+            t_stat = float(t) if t else None
+        except ValueError:
+            raise LoopError(f"Line {i}: t_stat must be a number or empty.") from None
+        rows.append({"id": rid, "title": r["title"].strip(), "outcome": outcome, "t_stat": t_stat,
+                     "decided": (r["decided"] or "").strip(), "note": (r["note"] or "").strip()})
+    if not rows:
+        raise LoopError("History file has no rows.")
+    return rows
+
+
+def import_history(rows: list[dict], source: str) -> int:
+    """Append prior hypotheses. Refuses an id already in the log. Returns the new N."""
+    head, records = fetch()
+    have = {p["id"] for p in priors(records)}
+    dup = [r["id"] for r in rows if r["id"] in have]
+    if dup:
+        raise LoopError(f"Already imported: {', '.join(dup)}. The exam log never changes a record.")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new = [{"type": "prior", "imported_at": now, "source": source, **r} for r in rows]
+    _append(head, records + new, f"Imported {len(new)} prior hypotheses from {source}")
+    return n_tested(records) + len(new)
+
+
+def confirm(hypothesis_id: int, classification: str, reason: str) -> None:
+    """The coroner rule: a human confirms (or overrides) the evaluator's classification."""
+    classification = classification.upper()
+    if classification not in CLASSIFICATIONS:
+        raise LoopError(f"Classification must be one of {', '.join(CLASSIFICATIONS)}.")
+    if not reason.strip():
+        raise LoopError("A written reason is required.")
+    head, records = fetch()
+    exam = [e for e in exams(records) if e["hypothesis_id"] == hypothesis_id]
+    if not exam:
+        raise LoopError(f"Hypothesis {hypothesis_id:03d} has no exam in the log.")
+    key = (hypothesis_id, exam[-1]["strategy_sha256"])
+    result = [r for r in records if r.get("type") == "result"
+              and (r["hypothesis_id"], r["strategy_sha256"]) == key]
+    if not result:
+        raise LoopError(f"Hypothesis {hypothesis_id:03d} has no result to confirm.")
+    if any(r.get("type") == "confirmation" and (r["hypothesis_id"], r["strategy_sha256"]) == key
+           for r in records):
+        raise LoopError(f"Hypothesis {hypothesis_id:03d} is already confirmed. Confirmations are final.")
+    rec = {"type": "confirmation", "hypothesis_id": hypothesis_id, "strategy_sha256": key[1],
+           "recommended": result[-1]["result"].get("category") or result[-1]["result"].get("result"),
+           "classification": classification, "reason": reason.strip(),
+           "confirmed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    _append(head, records + [rec], f"Confirmed: hypothesis {hypothesis_id:03d} {classification}")
+
+
 def genesis(head: str) -> str:
     return _git("rev-list", "--max-parents=0", head).splitlines()[-1]
 
 
 def record_exam(fields: dict, sealed_genesis: str) -> int:
-    """Append an exam record, refusing a retake. Returns N (exams in the log, this one included).
+    """Append an exam record, refusing a retake. Returns N (exams + imported priors, this one included).
 
     `sealed_genesis` comes from inside the key-authenticated exam file: the
     log being written to must be the one that existed when the exam was sealed.
@@ -112,7 +197,7 @@ def record_exam(fields: dict, sealed_genesis: str) -> int:
     rec = {"type": "exam", "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "evaluator_commit": commit + ("-dirty" if dirty else ""), **fields}
     _append(head, records + [rec], f"Exam: hypothesis {fields['hypothesis_id']:03d}")
-    return len(exams(records)) + 1
+    return n_tested(records) + 1
 
 
 def record_result(hypothesis_id: int, strategy_sha256: str, result: dict) -> None:

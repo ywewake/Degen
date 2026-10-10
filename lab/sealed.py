@@ -168,7 +168,8 @@ def evaluate(hid: int, passphrase: str, scorer=backtest.evaluate) -> dict:
         conn.execute("ROLLBACK")
         raise
     # The exam is now recorded as taken, remotely and locally. Only now does the strategy see data.
-    result = scorer(data, strategy, n_tested=n)
+    # The evaluator only recommends. A human confirms the classification (`confirm`).
+    result = {**scorer(data, strategy, n_tested=n), "status": "RECOMMENDED"}
     conn.execute("INSERT INTO sealed_results (evaluation_id, result_json) VALUES (?, ?)",
                  (cur.lastrowid, json.dumps(result, sort_keys=True)))
     examlog.record_result(h.id, last["strategy_sha256"], result)

@@ -306,6 +306,17 @@ class ExamTest(unittest.TestCase):
         with self.assertRaisesRegex(core.LoopError, "Cannot read the exam log"):
             sealed.seal(plain, KEY)
 
+    def test_two_logs_created_in_the_same_second_have_different_identities(self):
+        other = Path(self.tmp.name) / "other.git"
+        git(Path(self.tmp.name), "init", "-q", "--bare", str(other))
+        first = examlog.genesis(examlog.fetch()[0])
+        git(self.root, "remote", "set-url", "origin", str(other))
+        git(self.root, "update-ref", "-d", "refs/exam-log/last-seen")
+        frozen = examlog._git("log", "-1", "--format=%ad", "--date=raw", first)
+        with mock.patch.dict(os.environ, {"GIT_AUTHOR_DATE": frozen, "GIT_COMMITTER_DATE": frozen}):
+            examlog.init()
+        self.assertNotEqual(examlog.genesis(examlog.fetch()[0]), first)
+
     def test_exam_log_is_never_recreated(self):
         with self.assertRaisesRegex(core.LoopError, "never re-created"):
             examlog.init()

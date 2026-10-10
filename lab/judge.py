@@ -74,14 +74,18 @@ def refuse_if_judge_installed() -> None:
                     "Never type the sealed-data key into this copy: it is writable by the AI.")
 
 
-def confirm_at_terminal(prompt: str, word: str) -> None:
-    """Require a human to type `word` at the terminal. No terminal, no approval."""
+def ask_at_terminal(prompt: str) -> str:
+    """Read one line typed by a human at the terminal. No terminal, no answer."""
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write(f"{prompt}\nType {word} to continue: ")
+            tty.write(prompt)
             tty.flush()
-            answer = tty.readline().strip()
+            return tty.readline().strip()
     except OSError:
         raise LoopError("This needs a human at a terminal. No terminal is attached, so refusing.") from None
-    if answer != word:
+
+
+def confirm_at_terminal(prompt: str, word: str) -> None:
+    """Require a human to type `word` at the terminal. No terminal, no approval."""
+    if ask_at_terminal(f"{prompt}\nType {word} to continue: ") != word:
         raise LoopError("Not approved. Nothing changed.")

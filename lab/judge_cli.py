@@ -3,7 +3,9 @@
     sudo -u judge degen-judge init            create the exam log (once)
     sudo -u judge degen-judge seal <file>     encrypt the exam (once)
     sudo -u judge degen-judge evaluate <id>   take the sealed exam
-    sudo -u judge degen-judge log             every exam ever taken
+    sudo -u judge degen-judge log             every exam ever taken, plus imported history
+    sudo -u judge degen-judge import-history <file.csv>   add hypotheses tested elsewhere (raises N)
+    sudo -u judge degen-judge confirm <id> <CLASSIFICATION>   the coroner rule: you confirm a result
     sudo -u judge degen-judge update <ref>    move the judge's code to <ref>, after you approve the diff
 """
 
@@ -47,6 +49,10 @@ def main(argv):
         return sealed_cli.exam_log_main(["init"])
     if cmd == "log" and not rest:
         return sealed_cli.exam_log_main([])
+    if cmd == "import-history" and len(rest) == 1:
+        return sealed_cli.exam_log_main(["import", rest[0]])
+    if cmd == "confirm" and len(rest) == 2:
+        return sealed_cli.exam_log_main(["confirm", *rest])
     if cmd == "seal":
         return sealed_cli.seal_main(rest)
     if cmd == "evaluate":

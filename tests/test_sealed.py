@@ -127,7 +127,7 @@ class SealedTest(unittest.TestCase):
     def test_evaluation_works_then_second_is_blocked(self):
         h = self.hypothesis_with_attempt()
         calls = []
-        self.assertEqual(sealed.evaluate(h.id, KEY, counting_scorer(calls)), {"rows": 2})
+        self.assertEqual(sealed.evaluate(h.id, KEY, counting_scorer(calls)), {"rows": 2, "status": "RECOMMENDED"})
         self.assertEqual(calls, [(EXAM, self.root / "strategies/h001_v1.py")])
         with self.assertRaisesRegex(core.LoopError, "already taken the sealed exam"):
             sealed.evaluate(h.id, KEY, counting_scorer(calls))
