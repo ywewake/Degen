@@ -1,0 +1,3 @@
+#!/bin/sh
+# Shortcut for: ./loop new "<title>"
+exec "$(dirname "$0")/loop" new "$@"
